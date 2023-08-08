@@ -1,0 +1,89 @@
+- hosts: all
+  become: yes
+  roles:
+    - role: community.zabbix.zabbix_agent
+      zabbix_agent2: True
+      zabbix_agent2_server: 0.0.0.0/0
+      zabbix_agent2_serveractive: ""
+      zabbix_agent2_hostname: "{{ inventory_hostname }}"
+      zabbix_agent2_logfilesize: 10
+      zabbix_agent2_listenport: 9312
+      zabbix_agent2_tlsaccept: psk
+#      zabbix_agent2_tlspsk_auto: true
+      zabbix_agent2_tlspskidentity: <identity_key>
+      zabbix_agent2_tlspsk_secret: <32byte_secret_key>
+      zabbix_agent2_tlspskfile: /etc/zabbix/psk_secret
+      zabbix_agent2_listenip: 0.0.0.0
+      zabbix_agent2_enablepersistentbuffer: 1
+      zabbix_agent2_persistentbufferfile: /var/local/lib/zabbix/buffer.db
+      zabbix_agent2_persistentbufferperiod: 336h
+      zabbix_host_groups:
+        - Linux Servers
+      zabbix_agent_link_templates:
+        - Template OS Linux
+      zabbix_agent_tags:
+        - tag: environment
+          value: production
+
+  tasks:
+    - name: Create persistent buffer directory
+      ansible.builtin.file:
+        path: /var/local/lib/zabbix
+        state: directory
+        owner: zabbix
+        group: zabbix
+    - name: Touch a persistent buffer directory
+      ansible.builtin.file:
+        path: /var/local/lib/zabbix/buffer.db
+        state: touch
+        owner: zabbix
+        group: zabbix
+    - block:
+      - name: Add zabbix user to docker group
+        ansible.builtin.user:
+          name: zabbix
+          append: true
+          groups: docker
+      ignore_errors: yes
+    - name: Restart zabbix-agent2 service
+      ansible.builtin.systemd:
+        state: restarted
+        name: zabbix-agent2
+
+    - name: Using Zabbix collection to manage Zabbix Server's elements with auth_key
+      vars:
+        ansible_network_os: community.zabbix.zabbix
+        ansible_connection: httpapi
+        ansible_httpapi_port: 80
+        ansible_httpapi_host: "127.0.0.1"
+        ansible_httpapi_use_ssl: false
+        ansible_zabbix_auth_key: <zabbix_api_key>
+        ansible_zabbix_url_path: api_jsonrpc.php
+        ansible_httpapi_validate_certs: false
+#          ansible_zabbix_url_path: "zabbixeu"  # If Zabbix WebUI runs on non-default (zabbix) path ,e.g. http://<FQDN>/zabbixeu
+        ansible_host: "127.0.0.1" # you can use task level ansible_host or delegate_to like in previous example
+      become: false
+      community.zabbix.zabbix_host:
+        host_name: "{{ inventory_hostname }}"
+        visible_name: "{{ inventory_hostname }}"
+        host_groups:
+          - Linux servers
+        status: enabled
+        state: present
+        interfaces:
+          - type: 1
+            main: 1
+            useip: 1
+            port: 9312
+            ip: '{{ ansible_default_ipv4["address"] }}'
+        link_templates:
+          - Docker by Zabbix agent 2
+          - Linux by Zabbix agent
+        inventory_mode: "automatic"
+        tls_psk_identity: <identity_key>
+        tls_accept: 2
+        tls_connect: 2
+        tls_psk: <32byte_secret_key>
+        force: false
+      delegate_to: 127.0.0.1
+
